@@ -1,10 +1,9 @@
 /*
-
   decicn.c
-  16 september 2008
-  extracts images (mono, colour, mask) from cicn resources
+  2 March 2009
+  Extracts images (mono, colour, mask) from cicn resources.
 
-  Copyright (C) 2008 Neil Gentleman
+  Copyright (C) 2008-2009 Neil Gentleman
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -29,25 +28,26 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "decicn.h"
+
 void die(char* message) {
 	fputs(message, stderr);
 	fputs("\n", stderr);
 	exit(1);
 }
 
-#define assert(ok) assert_(ok, __LINE__)
-void assert_(int ok, int line) {
-	static char assert_buf[64];
-	if (!ok) {
-		snprintf(assert_buf, sizeof(assert_buf), "Assertion failed at line %d", line);
-		die(assert_buf);
-	}
+/* I'm sure there was some good reason not to use assert.h */
+#define assert(e) ((e) ? (void)0 : assert_(__FILE__, __LINE__, #e))
+void assert_(char* file, int line, char* assertion) {
+	static char assert_buf[128];
+	snprintf(assert_buf, sizeof(assert_buf), "Assertion failed: %s, file %s, line %d", assertion, file, line);
+	die(assert_buf);
 }
 
 uint16_t getint(FILE* file) {
 	int x, y;
-	if ((x = fgetc(file)) == EOF) die("getint failed");
-	if ((y = fgetc(file)) == EOF) die("getint failed");
+	assert((x = fgetc(file)) != EOF);
+	assert((y = fgetc(file)) != EOF);
 	return (x<<8) + y;
 }
 
@@ -58,59 +58,63 @@ uint32_t getlong(FILE* file) {
 	return (x<<16) + y;
 }
 
-struct ColorSpec {
-	uint16_t value;
-	uint16_t red;
-	uint16_t green;
-	uint16_t blue;
-};
+void read_CIcon(CIcon* cicn, FILE* f) {
+	int len;
 
-struct BitMap {
-	uint8_t* baseAddr;
-	uint16_t rowBytes;
-	uint16_t bounds[4];
-};
+	cicn->PMap = calloc(1, sizeof(PixMap));
+	if (NULL == cicn->PMap) die("calloc failed");
 
-struct ColorTable {
-	uint32_t ctSeed;
-	uint16_t ctFlags;
-	uint16_t ctSize;
-	struct ColorSpec* ctTable;
-};
+	cicn->Mask = calloc(1, sizeof(BitMap));
+	if (NULL == cicn->Mask) die("calloc failed");
 
-struct PixMap {
-	uint8_t* baseAddr;
-	uint16_t rowBytes;
-	uint16_t bounds[4];
-	uint16_t pmVersion;
-	uint16_t packType;
-	uint32_t packSize;
-	uint32_t hRes;
-	uint32_t vRes;
-	uint16_t pixelType;
-	uint16_t pixelSize;
-	uint16_t cmpCount;
-	uint16_t cmpSize;
-	uint32_t planeBytes;
-	struct ColorTable pmTable;
-	uint32_t pmReserved;
-};
+	cicn->BMap = calloc(1, sizeof(BitMap));
+	if (NULL == cicn->BMap) die("calloc failed");
 
-struct CIcon {
-	struct PixMap* PMap;
-	struct BitMap* Mask;
-	struct BitMap* BMap;
-};
+	read_PixMap(cicn->PMap, f);
+	read_BitMap(cicn->Mask, f);
+	read_BitMap(cicn->BMap, f);
+	assert(0 == getlong(f));
 
-void read_PixMap(struct PixMap* pmap, FILE* f) {
+	len = cicn->Mask->rowBytes * (cicn->Mask->bounds[bottom] - cicn->Mask->bounds[top]);
+	cicn->Mask->baseAddr = calloc(len, sizeof(uint8_t));
+	if (NULL == cicn->Mask->baseAddr) die("calloc failed");
+	fread(cicn->Mask->baseAddr, sizeof(uint8_t), len, f);
+	assert(!ferror(f));
+
+	len = cicn->BMap->rowBytes * (cicn->BMap->bounds[bottom] - cicn->BMap->bounds[top]);
+	cicn->BMap->baseAddr = calloc(len, sizeof(uint8_t));
+	if (NULL == cicn->BMap->baseAddr) die("calloc failed");
+	fread(cicn->BMap->baseAddr, sizeof(uint8_t), len, f);
+	assert(!ferror(f));
+
+	cicn->PMap->pmTable.ctSeed = getlong(f);
+	cicn->PMap->pmTable.ctFlags = getint(f);
+	cicn->PMap->pmTable.ctSize = getint(f);
+	cicn->PMap->pmTable.ctTable = calloc(cicn->PMap->pmTable.ctSize + 1, sizeof(ColorSpec));
+	if (NULL == cicn->PMap->pmTable.ctTable) die("calloc failed");
+	for (len = 0; len <= cicn->PMap->pmTable.ctSize; len++) {
+		cicn->PMap->pmTable.ctTable[len].value = getint(f);
+		cicn->PMap->pmTable.ctTable[len].red = getint(f);
+		cicn->PMap->pmTable.ctTable[len].green = getint(f);
+		cicn->PMap->pmTable.ctTable[len].blue = getint(f);
+	}
+
+	len = (cicn->PMap->rowBytes & 0x7FFF) * (cicn->PMap->bounds[bottom] - cicn->PMap->bounds[top]);
+	cicn->PMap->baseAddr = calloc(len, sizeof(uint8_t));
+	if (NULL == cicn->PMap->baseAddr) die("calloc failed");
+	fread(cicn->PMap->baseAddr, sizeof(uint8_t), len, f);
+	assert(!ferror(f));
+}
+
+void read_PixMap(PixMap* pmap, FILE* f) {
 	pmap->baseAddr = NULL;
 	assert(0 == getlong(f));
 	pmap->rowBytes = getint(f);
 	assert(0x8000 == (pmap->rowBytes & 0xC000));
-	pmap->bounds[1] = getint(f);
-	pmap->bounds[0] = getint(f);
-	pmap->bounds[3] = getint(f);
-	pmap->bounds[2] = getint(f);
+	pmap->bounds[top] = getint(f);
+	pmap->bounds[left] = getint(f);
+	pmap->bounds[bottom] = getint(f);
+	pmap->bounds[right] = getint(f);
 	pmap->pmVersion = getint(f);
 	assert(0 == pmap->pmVersion);
 	pmap->packType = getint(f);
@@ -135,72 +139,51 @@ void read_PixMap(struct PixMap* pmap, FILE* f) {
 	assert(0 == pmap->pmReserved);
 }
 
-void read_BitMap(struct BitMap* bmap, FILE* f) {
+void read_BitMap(BitMap* bmap, FILE* f) {
 	bmap->baseAddr = NULL;
 	assert(0 == getlong(f));
 	bmap->rowBytes = getint(f);
-	bmap->bounds[1] = getint(f);
-	bmap->bounds[0] = getint(f);
-	bmap->bounds[3] = getint(f);
-	bmap->bounds[2] = getint(f);
+	bmap->bounds[top] = getint(f);
+	bmap->bounds[left] = getint(f);
+	bmap->bounds[bottom] = getint(f);
+	bmap->bounds[right] = getint(f);
 }
 
-void read_CIcon(struct CIcon* cicn, FILE* f) {
-	int len;
-
-	cicn->PMap = calloc(1, sizeof(struct PixMap));
-	if (NULL == cicn->PMap) die("calloc failed");
-
-	cicn->Mask = calloc(1, sizeof(struct BitMap));
-	if (NULL == cicn->Mask) die("calloc failed");
-
-	cicn->BMap = calloc(1, sizeof(struct BitMap));
-	if (NULL == cicn->BMap) die("calloc failed");
-
-	read_PixMap(cicn->PMap, f);
-	read_BitMap(cicn->Mask, f);
-	read_BitMap(cicn->BMap, f);
-	assert(0 == getlong(f));
-
-	len = cicn->Mask->rowBytes * (cicn->Mask->bounds[3] - cicn->Mask->bounds[1]);
-	cicn->Mask->baseAddr = calloc(len, sizeof(uint8_t));
-	if (NULL == cicn->Mask->baseAddr) die("calloc failed");
-	fread(cicn->Mask->baseAddr, sizeof(uint8_t), len, f);
-	assert(!ferror(f));
-
-	len = cicn->BMap->rowBytes * (cicn->BMap->bounds[3] - cicn->BMap->bounds[1]);
-	cicn->BMap->baseAddr = calloc(len, sizeof(uint8_t));
-	if (NULL == cicn->BMap->baseAddr) die("calloc failed");
-	fread(cicn->BMap->baseAddr, sizeof(uint8_t), len, f);
-	assert(!ferror(f));
-
-	cicn->PMap->pmTable.ctSeed = getlong(f);
-	cicn->PMap->pmTable.ctFlags = getint(f);
-	cicn->PMap->pmTable.ctSize = getint(f);
-	cicn->PMap->pmTable.ctTable = calloc(cicn->PMap->pmTable.ctSize + 1, sizeof(struct ColorSpec));
-	if (NULL == cicn->PMap->pmTable.ctTable) die("calloc failed");
-	for (len = 0; len <= cicn->PMap->pmTable.ctSize; len++) {
-		cicn->PMap->pmTable.ctTable[len].value = getint(f);
-		cicn->PMap->pmTable.ctTable[len].red = getint(f);
-		cicn->PMap->pmTable.ctTable[len].green = getint(f);
-		cicn->PMap->pmTable.ctTable[len].blue = getint(f);
-	}
-
-	len = (cicn->PMap->rowBytes & 0x7FFF) * (cicn->PMap->bounds[3] - cicn->PMap->bounds[1]);
-	cicn->PMap->baseAddr = calloc(len, sizeof(uint8_t));
-	if (NULL == cicn->PMap->baseAddr) die("calloc failed");
-	fread(cicn->PMap->baseAddr, sizeof(uint8_t), len, f);
-	assert(!ferror(f));
+void dump_CIcon(const CIcon* cicn, FILE* stream) {
+	fprintf(stream, "pmap : ");
+	dump_PixMap(cicn->PMap, stream);
+	fprintf(stream, "bmap : ");
+	dump_BitMap(cicn->BMap, stream);
+	fprintf(stream, "mask : ");
+	dump_BitMap(cicn->Mask, stream);
 }
 
-void print_P3_ColorSpec(struct ColorSpec* cs, FILE* fp) {
+void dump_PixMap(const PixMap* pmap, FILE* stream) {
+	fprintf(stream, "PixMap {\n");
+	fprintf(stream, "\trowBytes: %d\n", (pmap->rowBytes & 0x3FFF));
+	fprintf(stream, "\tbounds: top: %d, left: %d, bottom: %d, right: %d\n", pmap->bounds[top], pmap->bounds[left], pmap->bounds[bottom], pmap->bounds[right]);
+	fprintf(stream, "\tpixelSize: %d\n", pmap->pixelSize);
+	fprintf(stream, "\tcmpSize: %d\n", pmap->cmpSize);
+	fprintf(stream, "\t(data length %d)\n", (pmap->rowBytes & 0x7FFF) * (pmap->bounds[bottom] - pmap->bounds[top]));
+	fprintf(stream, "}\n");
+}
+
+void dump_BitMap(const BitMap* bmap, FILE* stream) {
+	fprintf(stream, "BitMap {\n");
+	fprintf(stream, "\trowBytes: %d\n", bmap->rowBytes);
+	fprintf(stream, "\tbounds: top: %d, left: %d, bottom: %d, right: %d\n", bmap->bounds[top], bmap->bounds[left], bmap->bounds[bottom], bmap->bounds[right]);
+	fprintf(stream, "\t(data length %d)\n", bmap->rowBytes * (bmap->bounds[bottom] - bmap->bounds[top]));
+	fprintf(stream, "}\n");
+}
+
+inline void print_P3_ColorSpec(const ColorSpec* cs, FILE* fp) {
 	fprintf(fp, "%d %d %d\n", cs->red, cs->green, cs->blue);
 }
 
-void print_PixMap(struct PixMap* pmap, FILE* stream) {
+void print_PixMap(const PixMap* pmap, FILE* stream) {
 	unsigned int x, y, i, j, idx, color;
-	x = pmap->bounds[2] - pmap->bounds[0];
-	y = pmap->bounds[3] - pmap->bounds[1];
+	x = pmap->bounds[right] - pmap->bounds[left];
+	y = pmap->bounds[bottom] - pmap->bounds[top];
 
 	fputs("P3\n# converted from cicn\n", stream);
 	fprintf(stream, "%d %d\n", x, y);
@@ -217,24 +200,28 @@ void print_PixMap(struct PixMap* pmap, FILE* stream) {
 				break;
 			case 2:
 				color = pmap->baseAddr[idx / 4];
-				switch (idx & 3) {
+				switch (idx % 4) {
 				case 0:
 					color &= 0xC0;
 					color >>= 6;
+					break;
 				case 1:
 					color &= 0x30;
 					color >>= 4;
+					break;
 				case 2:
 					color &= 0x0C;
 					color >>= 2;
+					break;
 				case 3:
 					color &= 0x03;
 					color >>= 0;
+					break;
 				}
 				break;
 			case 4:
 				color = pmap->baseAddr[idx / 2];
-				if ((color & 1) == 1) {
+				if (idx % 2 == 1) {
 					color &= 0x0F;
 					color >>= 0;
 				} else {
@@ -254,14 +241,17 @@ void print_PixMap(struct PixMap* pmap, FILE* stream) {
 					break;
 				}
 			}
+			if (idx > pmap->pmTable.ctSize) {
+				fprintf(stderr, "no matching colour found");
+			}
 		}
 	}
 }
 
-void print_BitMap(struct BitMap* bmap, FILE* stream) {
+void print_BitMap(const BitMap* bmap, FILE* stream) {
 	unsigned int x, y, i, j, idx, color;
-	x = bmap->bounds[2] - bmap->bounds[0];
-	y = bmap->bounds[3] - bmap->bounds[1];
+	x = bmap->bounds[right] - bmap->bounds[left];
+	y = bmap->bounds[bottom] - bmap->bounds[top];
 
 	fputs("P1\n# converted from cicn\n", stream);
 	fprintf(stream, "%d %d\n", x, y);
@@ -278,7 +268,12 @@ void print_BitMap(struct BitMap* bmap, FILE* stream) {
 }
 
 int usage() {
-	puts("usage: decicn [pmap|bmap|mask] file");
+	printf("Usage: decicn [pmap|bmap|mask|info] file\n"
+		"Extracts images (mono, colour, mask) from cicn resources.\n"
+		"  pmap -> get the color pixmap (as PNM)\n"
+		"  bmap -> get the monochrome bitmap\n"
+		"  mask -> get the pixmap's alpha channel\n"
+		"  info -> print some format details\n");
 	return 1;
 }
 
@@ -287,10 +282,11 @@ int main (int argc, char** argv) {
 		none,
 		pmap,
 		bmap,
-		mask
+		mask,
+		info
 	} mode = none;
 	FILE* input;
-	struct CIcon cicn;
+	CIcon cicn;
 
 	if (argc != 3) {
 		return usage();
@@ -301,6 +297,8 @@ int main (int argc, char** argv) {
 			mode = bmap;
 		} else if (0 == strcmp("mask", argv[1])) {
 			mode = mask;
+		} else if (0 == strcmp("info", argv[1])) {
+			mode = info;
 		}
 		if (mode == none) return usage();
 
@@ -308,6 +306,8 @@ int main (int argc, char** argv) {
 		if (NULL == input) die("couldn't open file");
 
 		read_CIcon(&cicn, input);
+
+		fclose(input);
 
 		switch (mode) {
 		case pmap:
@@ -319,12 +319,13 @@ int main (int argc, char** argv) {
 		case mask:
 			print_BitMap(cicn.Mask, stdout);
 			break;
+		case info:
+			printf("loading file %s\n", argv[2]);
+			dump_CIcon(&cicn, stdout);
+			break;
 		default:
 			die("what mode is that?");
 		}
-
-		fclose(input);
 	}
 	return 0;
 }
-
