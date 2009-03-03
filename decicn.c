@@ -1,6 +1,5 @@
 /*
-  decicn.c
-  2 March 2009
+  $Id$
   Extracts images (mono, colour, mask) from cicn resources.
 
   Copyright (C) 2008-2009 Neil Gentleman
@@ -181,52 +180,42 @@ inline void print_P3_ColorSpec(const ColorSpec* cs, FILE* fp) {
 }
 
 void print_PixMap(const PixMap* pmap, FILE* stream) {
-	unsigned int x, y, i, j, idx, color;
-	x = pmap->bounds[right] - pmap->bounds[left];
-	y = pmap->bounds[bottom] - pmap->bounds[top];
+	unsigned int width, height, x, y, idx, color;
+	width = pmap->bounds[right] - pmap->bounds[left];
+	height = pmap->bounds[bottom] - pmap->bounds[top];
 
 	fputs("P3\n# converted from cicn\n", stream);
-	fprintf(stream, "%d %d\n", x, y);
+	fprintf(stream, "%d %d\n", width, height);
 	fputs("65535\n", stream);
 
-	for (i = 0; i < y; i++) {
-		for (j = 0; j < x; j++) {
-			idx = i * (pmap->rowBytes & 0x3FFF) * 8 / pmap->pixelSize + j;
+	for (y = 0; y < height; y++) {
+		for (x = 0; x < width; x++) {
+			idx = y * (pmap->rowBytes & 0x3FFF) * 8 / pmap->pixelSize + x;
 			switch (pmap->pixelSize) {
 			case 1:
 				color = pmap->baseAddr[idx / 8];
-				color &= 0x80 >> (idx & 7);
-				color >>= 7 - (idx & 7);
+				color &= 0x80 >> (idx % 8);
+				color >>= 7 - (idx % 8);
 				break;
 			case 2:
 				color = pmap->baseAddr[idx / 4];
 				switch (idx % 4) {
 				case 0:
-					color &= 0xC0;
-					color >>= 6;
-					break;
-				case 1:
-					color &= 0x30;
-					color >>= 4;
-					break;
-				case 2:
-					color &= 0x0C;
 					color >>= 2;
-					break;
+				case 1:
+					color >>= 2;
+				case 2:
+					color >>= 2;
 				case 3:
 					color &= 0x03;
-					color >>= 0;
-					break;
 				}
 				break;
 			case 4:
 				color = pmap->baseAddr[idx / 2];
 				if (idx % 2 == 1) {
 					color &= 0x0F;
-					color >>= 0;
 				} else {
-					color &= 0xF0;
-					color >>= 4;
+					color = (color & 0xF0) >> 4;
 				}
 				break;
 			case 8:
@@ -249,16 +238,16 @@ void print_PixMap(const PixMap* pmap, FILE* stream) {
 }
 
 void print_BitMap(const BitMap* bmap, FILE* stream) {
-	unsigned int x, y, i, j, idx, color;
-	x = bmap->bounds[right] - bmap->bounds[left];
-	y = bmap->bounds[bottom] - bmap->bounds[top];
+	unsigned int width, height, x, y, idx, color;
+	width = bmap->bounds[right] - bmap->bounds[left];
+	height = bmap->bounds[bottom] - bmap->bounds[top];
 
 	fputs("P1\n# converted from cicn\n", stream);
-	fprintf(stream, "%d %d\n", x, y);
+	fprintf(stream, "%d %d\n", width, height);
 
-	for (i = 0; i < y; i++) {
-		for (j = 0; j < x; j++) {
-			idx = i * bmap->rowBytes * 8 + j;
+	for (y = 0; y < height; y++) {
+		for (x = 0; x < width; x++) {
+			idx = y * bmap->rowBytes * 8 + x;
 			color = bmap->baseAddr[idx / 8];
 			color &= 0x80 >> (idx & 7);
 			fputs(color ? "1 " : "0 ", stream);
