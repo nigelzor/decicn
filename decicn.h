@@ -75,9 +75,6 @@ enum Bounds {
 	top = 0, left, bottom, right
 };
 
-uint16_t getint(FILE* file);
-uint32_t getlong(FILE* file);
-
 void read_PixMap(PixMap* pmap, FILE* f);
 void read_BitMap(BitMap* bmap, FILE* f);
 void read_CIcon(CIcon* cicn, FILE* f);

@@ -26,31 +26,24 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 #include "decicn.h"
 
-void die(char* message) {
+static void die(char* message) {
 	fputs(message, stderr);
 	fputs("\n", stderr);
 	exit(1);
 }
 
-/* I'm sure there was some good reason not to use assert.h */
-#define assert(e) ((e) ? (void)0 : assert_(__FILE__, __LINE__, #e))
-void assert_(char* file, int line, char* assertion) {
-	static char assert_buf[128];
-	snprintf(assert_buf, sizeof(assert_buf), "Assertion failed: %s, file %s, line %d", assertion, file, line);
-	die(assert_buf);
-}
-
-uint16_t getint(FILE* file) {
+static uint16_t getint(FILE* file) {
 	int x, y;
 	assert((x = fgetc(file)) != EOF);
 	assert((y = fgetc(file)) != EOF);
 	return (x<<8) + y;
 }
 
-uint32_t getlong(FILE* file) {
+static uint32_t getlong(FILE* file) {
 	int x, y;
 	x = getint(file);
 	y = getint(file);
