@@ -1,5 +1,5 @@
 /*
-  $Id$
+  decicn.c
   Extracts images (mono, colour, mask) from cicn resources.
 
   Copyright (C) 2008-2009 Neil Gentleman
