@@ -1,0 +1,8 @@
+decicn
+======
+
+I translate legacy Mac OS cicn resources to more useful formats, but can't
+do it alone. ImageMagick does the hard work of building a PNG. hfsutils, 
+macunpack, and rsrce are going to come in handy extracting the cicn from 
+whatever package it's currently wrapped in.
+
